@@ -1,24 +1,15 @@
-﻿/* ============================================================
-   inject-smart-navigation.js  (v30)
+﻿ /* ============================================================
+   inject-smart-navigation.js  (v31)
    مسیریابی هوشمند برای تور مجازی بیمارستان (3DVista)
 
-   تغییرات v30 نسبت به v29 (رفع «هنوز سریعه»):
-   - طبق بررسی tdvplayer.js: متد setPosition(yaw,pitch,roll,hfov) روی PanoramaPlayer است، نه روی camera.
-     v29 دنبالش روی camera می‌گشت → پیدا نمی‌کرد → می‌افتاد روی hash (سرعت هاردکد موتور تور).
-     حالا اول player.setPosition، بعد camera.set، و فقط در آخر hash.
-   - اعتبارسنجی استراتژی «تنبل» (بعد از ۳ فریم واقعی) به‌جای probe لحظه‌ای که به‌خاطر آپدیت تنبل camera شکست می‌خورد.
-   - SmartNav.diag() برای دیدن دقیق اینکه چی پیدا شده و چی نه.
-   - سرعت پیش‌فرض آرام‌تر (۳۰°/s، حداقل ۱.۸s).
-
-   تغییرات v29 نسبت به v28:
-   - چرخش دوربین خیلی نرم: مدت زمان بر اساس زاویه (درجه/ثانیه) + easing خیلی آرام (smootherstep)
-   - سه استراتژی چرخش با تشخیص خودکار: setPosition → set('yaw'/'pitch') → hash رسمی 3DVista
-   - رفع باگ: بعد از «توقف»، حلقهٔ انیمیشن و تایمرهای زنجیره‌ای دیگه ادامه پیدا نمی‌کنن (token نسل)
-   - رفع باگ: اگه کاربر همون‌جا (مبدأ) بود، دیگه صحنهٔ فعلی بی‌دلیل reload نمی‌شه
-   - تشخیص صحنهٔ فعلی + دکمهٔ «موقعیت فعلی» + انتظار واقعی برای لود صحنه (به‌جای delay ثابت)
-   - هشدار خودکار در کنسول برای یال‌هایی که yaw ندارن (تا گراف رو کامل کنی)
-   - Dijkstra با وزن اختیاری (weight) برای مسیر واقعی‌تر
-   - دسترس‌پذیری: دکمه واقعی، کیبورد، escape برای بستن پنل، جلوگیری از XSS در لیبل‌ها
+   تغییرات v31 نسبت به v30 (رفع کامل مشکل چرخش):
+   - طبق diag: yaw/pitch/roll/hfov از خود player خونده می‌شن، نه camera.
+     camera.get('yaw') مقدار undefined برمی‌گردوند → smoothRotate شکست می‌خورد.
+   - setPosition(yaw, pitch, roll, hfov) نیاز به ۴ پارامتر عددی داره
+     (roll=0، hfov از p.get('hfov') گرفته می‌شه). قبلاً undefined پاس می‌شد.
+   - استراتژی camera.set حذف شد (بی‌فایده بود).
+   - فقط player.setPosition به‌عنوان استراتژی معتبر باقی موند.
+   - readCam/applyCam/smoothRotate/diag/getCamCtx اصلاح شدن.
    ============================================================ */
 (function () {
   'use strict';
@@ -29,24 +20,21 @@
   }
 
   /* ============================================================
-     0) تنظیمات (همه‌ی اعدادی که ممکنه بخوای تغییر بدی همین‌جاست)
+     0) تنظیمات
      ============================================================ */
   var CFG = {
-    // --- چرخش دوربین به سمت هات‌اسپات ---
     ROTATE_DEG_PER_SEC: 30,     // سرعت چرخش (درجه بر ثانیه) — کمتر = آرام‌تر
-    ROTATE_MIN_MS: 1800,        // حداقل زمان چرخش حتی برای زاویه‌های کوچک
-    ROTATE_MAX_MS: 6000,        // حداکثر زمان چرخش برای زاویه‌های بزرگ (مثلاً ۱۸۰ درجه)
-    EASING: 'smootherstep',     // 'smootherstep' | 'easeInOutSine' | 'easeInOutCubic'
+    ROTATE_MIN_MS: 1800,        // حداقل زمان چرخش
+    ROTATE_MAX_MS: 6000,        // حداکثر زمان چرخش
+    EASING: 'smootherstep',
 
-    // --- زمان‌بندی مراحل ---
-    SETTLE_AFTER_LOAD_MS: 900,  // بعد از لود صحنه، چقدر مکث کنه تا کاربر صحنه رو ببینه، بعد بچرخه
-    HOLD_BEFORE_JUMP_MS: 550,   // بعد از اینکه دوربین روی هات‌اسپات قفل شد، چقدر بمونه بعد بره صحنه بعد
-    SCENE_LOAD_TIMEOUT_MS: 6000,// حداکثر انتظار برای لود صحنه (اگه تشخیص صحنه ممکن نبود از FALLBACK استفاده می‌شه)
+    SETTLE_AFTER_LOAD_MS: 900,
+    HOLD_BEFORE_JUMP_MS: 550,
+    SCENE_LOAD_TIMEOUT_MS: 6000,
     SCENE_LOAD_FALLBACK_MS: 2200,
-    HASH_ROTATE_WAIT_MS: 1600,  // وقتی چرخش از طریق hash انجام می‌شه (استراتژی سوم)، چقدر منتظر بمونه
+    HASH_ROTATE_WAIT_MS: 1600,
 
-    // --- رفتار ---
-    AUTO_SELECT_CURRENT_SCENE: true, // وقتی پنل باز می‌شه، مبدأ رو خودکار روی صحنهٔ فعلی بگذاره
+    AUTO_SELECT_CURRENT_SCENE: true,
     DEBUG: true
   };
 
@@ -55,28 +43,25 @@
 
   /* ============================================================
      1) گراف صحنه‌ها
-     فرمت هر یال: { to: "اسم مقصد", yaw: عدد, pitch: عدد (اختیاری), fov: عدد (اختیاری), weight: عدد (اختیاری، پیش‌فرض 1) }
-     yaw = جهت هات‌اسپاتی که تو صحنهٔ «مبدأ» به صحنهٔ «مقصد» می‌ره.
      ============================================================ */
   var GRAPH = {
     "ورودی اصلی":      [{ to: "ورودی کلینیک", yaw: 75.29 }, { to: "پذیرش1", yaw: 1.08 }, { to: "ورودی اورژانس", yaw: -61.35 }],
     "ورودی کلینیک":     [{ to: "روبروی آزمایشگاه", yaw: 1.97 }, { to: "ورودی اصلی", yaw: -91.65 }],
     "ورودی اورژانس":    [{ to: "ورودی اصلی", yaw: 69.32 }, { to: "تریاژ", yaw: -1.35 }],
-"تریاژ":            [{ to: "بستری اورژانس", yaw: 87.42 }, { to: "ورودی اورژانس", yaw: -10.72 }, { to: "راهنمای خطوط", yaw: -151.25 }],
+    "تریاژ":            [{ to: "بستری اورژانس", yaw: 87.42 }, { to: "ورودی اورژانس", yaw: -10.72 }, { to: "راهنمای خطوط", yaw: -151.25 }],
     "بستری اورژانس":    [{ to: "تریاژ", yaw: -20.07 }],
     "پذیرش1":           [{ to: "ورودی اصلی", yaw: -0.11 }, { to: "پذیرش2", yaw: -177.2 }],
     "پذیرش2":           [{ to: "پذیرش1", yaw: -179.66 }, { to: "راهنمای خطوط", yaw: -1.79 }, { to: "آسانسور همکف", yaw: 39.5 }],
     "آسانسور همکف":     [{ to: "پذیرش2", yaw: -92.75 }, { to: "نمازخانه", yaw: 79.73 }],
     "نمازخانه":         [{ to: "آسانسور همکف", yaw: -1.43 }],
-    "راهنمای خطوط":     [{ to: "تریاژ", yaw: -100.28 }, { to: "پذیرش2", yaw: -178.47 }, { to: "ورودی رادیولوژی" /* yaw؟ */ }],
-    "روبروی آزمایشگاه": [{ to: "آزمایشگاه" /* yaw؟ */ }, { to: "ورودی کلینیک", yaw: 152.65 }, { to: "روبروی کتابخونه", yaw: -85.85 }],
+    "راهنمای خطوط":     [{ to: "تریاژ", yaw: -100.28 }, { to: "پذیرش2", yaw: -178.47 }, { to: "ورودی رادیولوژی" }],
+    "روبروی آزمایشگاه": [{ to: "آزمایشگاه" }, { to: "ورودی کلینیک", yaw: 152.65 }, { to: "روبروی کتابخونه", yaw: -85.85 }],
     "آزمایشگاه":        [{ to: "روبروی آزمایشگاه", yaw: 87.73 }],
-    "روبروی کتابخونه":  [{ to: "کتابخونه" /* yaw؟ */ }, { to: "روبروی آزمایشگاه", yaw: 154.27 }],
+    "روبروی کتابخونه":  [{ to: "کتابخونه" }, { to: "روبروی آزمایشگاه", yaw: 154.27 }],
     "کتابخونه":         [{ to: "روبروی کتابخونه", yaw: 148.53 }],
-    "ورودی رادیولوژی":  [{ to: "راهنمای خطوط" /* yaw؟ */ }]
+    "ورودی رادیولوژی":  [{ to: "راهنمای خطوط" }]
   };
 
-  /* دوطرفه‌کردن گراف + گزارش یال‌های بدون yaw (این یال‌ها چرخش دوربین ندارن و مستقیم پرش می‌کنن) */
   (function normalizeGraph() {
     var missing = [];
     Object.keys(GRAPH).forEach(function (from) {
@@ -94,9 +79,8 @@
     });
     if (missing.length) warn('این یال‌ها yaw ندارن؛ برای چرخش نرم مقدارشون رو در GRAPH اضافه کن:\n  ' + missing.join('\n  '));
   })();
-
-  /* ============================================================
-     2) Dijkstra (وزن یال = edge.weight یا 1)
+ /* ============================================================
+     2) Dijkstra
      ============================================================ */
   function dijkstra(start, end) {
     if (!(start in GRAPH) || !(end in GRAPH)) return null;
@@ -129,7 +113,7 @@
   }
 
   /* ============================================================
-     3) دسترسی به موتور 3DVista (همه با try/catch و تشخیص قابلیت)
+     3) دسترسی به موتور 3DVista
      ============================================================ */
   function getRootPlayer() {
     var tour = window.tour;
@@ -145,7 +129,8 @@
     try { if (tour && typeof tour.getMainViewer === 'function') return tour.getMainViewer(); } catch (e) {}
     return null;
   }
-function getActivePanoramaPlayer() {
+
+  function getActivePanoramaPlayer() {
     var root = getRootPlayer();
     if (!root) return null;
     try {
@@ -164,14 +149,7 @@ function getActivePanoramaPlayer() {
     return null;
   }
 
-  function getActiveCamera() {
-    try {
-      var p = getActivePanoramaPlayer();
-      return p ? p.get('camera') : null;
-    } catch (e) { return null; }
-  }
-
-  /* اسم (label) صحنه‌ای که همین الان نمایش داده می‌شه؛ اگه نشد null */
+  /* اسم صحنه فعلی */
   function getCurrentSceneLabel() {
     try {
       var root = getRootPlayer();
@@ -186,22 +164,25 @@ function getActivePanoramaPlayer() {
       var pano = p && p.get('panorama');
       if (pano && pano.get) return pano.get('label') || null;
     } catch (e) {}
+    /* fallback: از پارامتر media-name تو hash */
+    try {
+      var m2 = window.location.hash.match(/media-name=([^&]+)/);
+      if (m2) return decodeURIComponent(m2[1]);
+    } catch (e) {}
     return null;
   }
 
   /* ============================================================
-     4) جابجایی با فرمت رسمی 3DVista  (#media-name=...&yaw=...&pitch=...&fov=...)
+     4) جابجایی با hash رسمی 3DVista
      ============================================================ */
   function goToScene(label, yaw, pitch, fov) {
     var hash = 'media-name=' + encodeURIComponent(label);
     if (typeof yaw === 'number') {
       hash += '&yaw=' + yaw.toFixed(2);
-      // موتور تور pitch رو با "parseFloat(pitch)||undefined" می‌خونه؛ 0 خالص نادیده گرفته می‌شه → 0.1
       hash += '&pitch=' + ((typeof pitch === 'number' && pitch !== 0) ? pitch.toFixed(2) : '0.1');
-      if (typeof fov === 'number') hash += '&fov=' + fov.toFixed(2);
+ if (typeof fov === 'number') hash += '&fov=' + fov.toFixed(2);
     }
     log('hash ->', hash);
-    // اگه hash عیناً همون قبلی باشه، hashchange اجرا نمی‌شه؛ اول خالی می‌کنیم
     if (window.location.hash === '#' + hash) {
       try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { window.location.hash = ''; }
     }
@@ -209,10 +190,10 @@ function getActivePanoramaPlayer() {
   }
 
   /* ============================================================
-     5) چرخش نرم دوربین
+     5) چرخش نرم دوربین — v31: فقط player.setPosition
      ============================================================ */
   var EASINGS = {
-    smootherstep:  function (t) { return t * t * t * (t * (t * 6 - 15) + 10); },          // خیلی نرم: شتاب و ترمز صفر
+    smootherstep:  function (t) { return t * t * t * (t * (t * 6 - 15) + 10); },
     easeInOutSine: function (t) { return -(Math.cos(Math.PI * t) - 1) / 2; },
     easeInOutCubic:function (t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
   };
@@ -220,123 +201,84 @@ function getActivePanoramaPlayer() {
   function shortestYawDelta(from, to) { return ((to - from + 540) % 360) - 180; }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-  /* مدت چرخش بر اساس بزرگی زاویه: کوچک‌ها سریع‌تر تمام نمی‌شن، بزرگ‌ها هم بی‌نهایت طول نمی‌کشن */
   function rotationDuration(deltaYaw, deltaPitch) {
     var ang = Math.max(Math.abs(deltaYaw), Math.abs(deltaPitch));
     return clamp((ang / CFG.ROTATE_DEG_PER_SEC) * 1000, CFG.ROTATE_MIN_MS, CFG.ROTATE_MAX_MS);
   }
 
-  /* ------------------------------------------------------------
-     استراتژی اعمال زاویه به دوربین (به ترتیب اولویت):
-       'player.setPosition' → متد رسمی PanoramaPlayer.setPosition(yaw, pitch, roll, hfov)
-                              (در tdvplayer.js تأیید شده؛ v29 اشتباهاً دنبالش روی camera می‌گشت)
-'camera.set'         → camera.set('yaw'/'pitch')
-       null                 → هیچ‌کدوم کار نکرد → hash رسمی (سرعتش دست موتور توره)
-     اعتبارسنجی «تنبل»: بعد از ۳ فریم انیمیشن چک می‌کنیم yaw واقعاً حرکت کرده یا نه.
-     ------------------------------------------------------------ */
-  var cameraStrategy = undefined;   // undefined = هنوز تست نشده
-  var STRATEGIES = ['player.setPosition', 'camera.set'];
-
-  function readCam(camera) {
-    var yaw = camera.get('yaw'), pitch = camera.get('pitch');
+  /* v31: خوندن مقادیر از خود player (نه camera) */
+  function readCam(player) {
+    var yaw = player.get('yaw');
+    var pitch = player.get('pitch');
     if (typeof yaw !== 'number' || typeof pitch !== 'number') throw new Error('non-number yaw/pitch');
-    var roll, hfov;
-    try { roll = camera.get('roll'); } catch (e) {}
-    try { hfov = camera.get('hfov'); } catch (e) {}
-    return { yaw: yaw, pitch: pitch, roll: typeof roll === 'number' ? roll : 0, hfov: typeof hfov === 'number' ? hfov : undefined };
+    var roll = player.get('roll');
+    var hfov = player.get('hfov');
+    return {
+      yaw: yaw,
+      pitch: pitch,
+      roll: typeof roll === 'number' ? roll : 0,
+      hfov: typeof hfov === 'number' ? hfov : 90
+    };
   }
 
-  function strategyAvailable(name, ctx) {
-    if (name === 'player.setPosition') return !!(ctx.player && typeof ctx.player.setPosition === 'function');
-    if (name === 'camera.set') return !!(ctx.camera && typeof ctx.camera.set === 'function');
-    return false;
-  }
-
-  function applyCam(name, ctx, yaw, pitch, st) {
-    if (name === 'player.setPosition') {
-      // امضا: setPosition(yaw, pitch, roll, hfov) — hfov undefined یعنی «تغییر نده»
-      ctx.player.setPosition(yaw, pitch, st.roll, st.hfov);
-    } else if (name === 'camera.set') {
-      ctx.camera.set('yaw', yaw);
-      ctx.camera.set('pitch', pitch);
-    } else {
-      throw new Error('unknown strategy ' + name);
-    }
+  /* v31: setPosition همیشه با ۴ پارامتر عددی */
+  function applyCam(ctx, yaw, pitch, st) {
+    ctx.player.setPosition(yaw, pitch, st.roll  0, st.hfov  90);
   }
 
   function getCamCtx() {
-    var player = getActivePanoramaPlayer();
-    var camera = null;
-    try { camera = player ? player.get('camera') : null; } catch (e) {}
-    return { player: player, camera: camera };
+    return { player: getActivePanoramaPlayer() };
   }
 
-  /* چرخش نرم؛ callback(ok) — ok=false یعنی باید با hash بچرخیم */
+  var cameraStrategy = undefined;   // فقط برای سازگاری با diag نگه داشته شده
+
+  /* چرخش نرم */
   function smoothRotate(targetYaw, targetPitch, token, callback) {
     var ctx = getCamCtx();
-    if (!ctx.camera || typeof ctx.camera.get !== 'function') { warn('no camera accessible'); cameraStrategy = null; callback(false); return; }
+    if (!ctx.player || typeof ctx.player.get !== 'function') {
+      warn('no player accessible'); cameraStrategy = null; callback(false); return;
+    }
 
     var st;
-    try { st = readCam(ctx.camera); } catch (e) { warn('read camera failed:', e); cameraStrategy = null; callback(false); return; }
-
-    // انتخاب استراتژی: اگه قبلاً تأیید شده همون؛ وگرنه اولین موجود در لیست
-    var candidates = cameraStrategy ? [cameraStrategy] : STRATEGIES.filter(function (n) { return strategyAvailable(n, ctx); });
-    if (!candidates.length) { warn('no camera strategy available'); cameraStrategy = null; callback(false); return; }
+    try { st = readCam(ctx.player); }
+    catch (e) { warn('read player failed:', e); cameraStrategy = null; callback(false); return; }
 
     var toPitch = typeof targetPitch === 'number' ? targetPitch : st.pitch;
     var dYaw = shortestYawDelta(st.yaw, targetYaw);
     var dPitch = toPitch - st.pitch;
     var duration = rotationDuration(dYaw, dPitch);
-    if (Math.abs(dYaw) < 0.5 && Math.abs(dPitch) < 0.5) { callback(true); return; }   // عملاً همون‌جاییم
 
-    tryStrategy(0);
+    if (Math.abs(dYaw) < 0.5 && Math.abs(dPitch) < 0.5) { callback(true); return; }
 
-    function tryStrategy(ci) {
-      if (ci >= candidates.length) { cameraStrategy = null; callback(false); return; }
-      var name = candidates[ci];
-      var startTs = null, frames = 0, verified = !!cameraStrategy;
-      log('rotate', st.yaw.toFixed(1) + '° → ' + targetYaw.toFixed(1) + '°', '(' + Math.round(duration) + 'ms) via', name);
+    var startTs = null;
+    cameraStrategy = 'player.setPosition';
+    log('rotate', st.yaw.toFixed(1) + '° → ' + targetYaw.toFixed(1) + '°', '(' + Math.round(duration) + 'ms)');
 
-      function frame(ts) {
-        if (!token.alive) { callback(true); return; }
-        if (startTs === null) startTs = ts;
-        var t = Math.min(1, (ts - startTs) / duration);
-        var k = ease(t);
-        try { applyCam(name, ctx, st.yaw + dYaw * k, st.pitch + dPitch * k, st); }
-        catch (e) { warn('strategy', name, 'threw:', e); tryStrategy(ci + 1); return; }
-
-        frames++;
-        // اعتبارسنجی: بعد از ۳ فریم، yaw باید از نقطهٔ شروع فاصله گرفته باشه
-        if (!verified && frames === 3) {
-          var nowYaw = ctx.camera.get('yaw');
-var expected = st.yaw + dYaw * k;
-          if (typeof nowYaw !== 'number' || Math.abs(shortestYawDelta(nowYaw, expected)) > Math.max(2, Math.abs(dYaw) * 0.5)) {
-            warn('strategy', name, 'did not move camera (yaw now', nowYaw, 'expected ~', expected.toFixed(2) + ')');
-            tryStrategy(ci + 1); return;
-          }
-          verified = true; cameraStrategy = name; log('camera strategy verified =', name);
-        }
-        if (t < 1) requestAnimationFrame(frame); else callback(true);
-      }
-      requestAnimationFrame(frame);
+    function frame(ts) {
+      if (!token.alive) { callback(true); return; }
+      if (startTs === null) startTs = ts;
+      var t = Math.min(1, (ts - startTs) / duration);
+      var k = ease(t);
+      try { applyCam(ctx, st.yaw + dYaw * k, st.pitch + dPitch * k, st); }
+      catch (e) { warn('setPosition threw:', e); callback(false); return; }
+      if (t < 1) requestAnimationFrame(frame); else callback(true);
     }
+    requestAnimationFrame(frame);
   }
 
-  /* منتظر می‌مونه تا صحنهٔ label واقعاً لود بشه؛ اگه تشخیص صحنه ممکن نبود، delay ثابت */
+  /* منتظر لود صحنه */
   function waitForScene(label, token, callback) {
     if (getCurrentSceneLabel() === null) { schedule(token, callback, CFG.SCENE_LOAD_FALLBACK_MS); return; }
     var started = Date.now();
     (function poll() {
       if (!token.alive) return;
       var cur = getCurrentSceneLabel();
-      if (cur === label) { schedule(token, callback, 250); return; }        // 250ms برای اتمام fade
+      if (cur === label) { schedule(token, callback, 250); return; }
       if (Date.now() - started > CFG.SCENE_LOAD_TIMEOUT_MS) { warn('scene load timeout:', label, '(current:', cur + ')'); callback(); return; }
       schedule(token, poll, 120);
     })();
   }
-
-  /* setTimeout امن: فقط اگه token هنوز زنده باشه اجرا می‌شه */
-  function schedule(token, fn, ms) {
+ function schedule(token, fn, ms) {
     var id = setTimeout(function () { if (token.alive) fn(); }, ms);
     token.timers.push(id);
     return id;
@@ -369,7 +311,7 @@ var expected = st.yaw + dYaw * k;
     + '#snav-panel.open{transform:translateX(-50%) translateY(0);visibility:visible;}'
     + '#snav-panel h3{margin:0 0 16px;font-size:14.5px;font-weight:700;color:#e8f4f2;letter-spacing:.2px;display:flex;align-items:center;gap:8px;}'
     + '#snav-panel h3 .dot{width:6px;height:6px;border-radius:50%;background:#d4af37;box-shadow:0 0 8px #d4af37;flex-shrink:0;}'
-+ '.snav-field{margin-bottom:12px;}'
+    + '.snav-field{margin-bottom:12px;}'
     + '.snav-field .lbl{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}'
     + '.snav-field label{font-size:11.5px;color:#8fb5b0;font-weight:500;}'
     + '.snav-link{background:none;border:none;color:#2dd4bf;font-family:"Vazirmatn",sans-serif;font-size:11px;cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent;}'
@@ -382,7 +324,7 @@ var expected = st.yaw + dYaw * k;
     + '.snav-field select:focus{border-color:#2dd4bf;}'
     + '.snav-field select option{background-color:#0d2226;color:#eaf6f4;}'
     + '#snav-go{width:100%;margin-top:6px;padding:13px;border:none;border-radius:12px;cursor:pointer;'
-    + 'background:linear-gradient(120deg,#2dd4bf,#1a8f82);color:#06201d;font-family:"Vazirmatn",sans-serif;'
+ + 'background:linear-gradient(120deg,#2dd4bf,#1a8f82);color:#06201d;font-family:"Vazirmatn",sans-serif;'
     + 'font-weight:700;font-size:14px;transition:filter .2s,transform .15s;-webkit-tap-highlight-color:transparent;}'
     + '#snav-go:hover{filter:brightness(1.08);}'
     + '#snav-go:active{transform:scale(.98);}'
@@ -420,7 +362,8 @@ var expected = st.yaw + dYaw * k;
   }
   var labels = Object.keys(GRAPH).sort(function (a, b) { return a.localeCompare(b, 'fa'); });
   var optionsHtml = labels.map(function (l) { return '<option value="' + escapeHtml(l) + '">' + escapeHtml(l) + '</option>'; }).join('');
-var btn = document.createElement('button');
+
+  var btn = document.createElement('button');
   btn.id = 'snav-btn';
   btn.type = 'button';
   btn.setAttribute('aria-haspopup', 'dialog');
@@ -440,7 +383,7 @@ var btn = document.createElement('button');
       '<button type="button" class="snav-link" id="snav-here">موقعیت فعلی من</button></div>' +
       '<select id="snav-from">' + optionsHtml + '</select></div>' +
     '<div class="snav-field"><div class="lbl"><label for="snav-to">مقصد</label></div><select id="snav-to">' + optionsHtml + '</select></div>' +
-    '<button id="snav-go" type="button">شروع مسیریابی</button>' +
+ '<button id="snav-go" type="button">شروع مسیریابی</button>' +
     '<div id="snav-err" role="alert"></div>' +
     '<div id="snav-status" aria-live="polite"><div class="txt"><div id="snav-status-txt"></div><div id="snav-progress"><i></i></div></div>' +
       '<button id="snav-cancel" type="button">توقف</button></div>';
@@ -473,9 +416,8 @@ var btn = document.createElement('button');
   hereBtn.addEventListener('click', function () { selectCurrentScene(false); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && panel.classList.contains('open')) setPanelOpen(false); });
 
-  /* فول‌اسکرین: المنت‌های خارج از عنصر فول‌اسکرین دیده نمی‌شن → دکمه/پنل رو منتقل می‌کنیم */
- function relocateUI() {
-    var fsEl = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+  function relocateUI() {
+    var fsEl = document.fullscreenElement  document.webkitFullscreenElement  document.mozFullScreenElement || document.msFullscreenElement;
     var target = fsEl || document.body;
     if (btn.parentNode !== target) target.appendChild(btn);
     if (panel.parentNode !== target) target.appendChild(panel);
@@ -489,10 +431,9 @@ var btn = document.createElement('button');
     statusTxt.innerHTML = html;
     if (typeof frac === 'number') progressBar.style.width = Math.round(clamp(frac, 0, 1) * 100) + '%';
   }
-/* ============================================================
-     8) اجرای مسیر گام‌به‌گام
-     هر گام:  [اگه لازم بود: پرش به s.from و انتظار لود] → مکث کوتاه →
-              چرخش نرم به سمت هات‌اسپات → مکث کوتاه → پرش به s.to → انتظار لود
+
+  /* ============================================================
+     8) اجرای مسیر
      ============================================================ */
   var activeToken = null;
 
@@ -528,14 +469,12 @@ var btn = document.createElement('button');
       var s = steps[idx];
       var frac = idx / total;
 
-      // مکث کوتاه تا کاربر صحنه رو ببینه، بعد چرخش
       schedule(token, function () {
-        if (typeof s.yaw !== 'number') { jump(); return; }   // این یال yaw نداره → مستقیم پرش
+ if (typeof s.yaw !== 'number') { jump(); return; }
         setStatus('گام <b>' + (idx + 1) + '</b> از <b>' + total + '</b> — چرخش به سمت «' + escapeHtml(s.to) + '»', frac + 0.3 / total);
         smoothRotate(s.yaw, s.pitch, token, function (ok) {
           if (!token.alive) return;
           if (ok) { schedule(token, jump, CFG.HOLD_BEFORE_JUMP_MS); return; }
-          // استراتژی سوم: چرخش با hash رسمی (موتور تور خودش انیمیت می‌کنه)
           goToScene(s.from, s.yaw, s.pitch, s.fov);
           schedule(token, jump, CFG.HASH_ROTATE_WAIT_MS);
         });
@@ -549,7 +488,6 @@ var btn = document.createElement('button');
       }
     }
 
-    // شروع: اگه همین الان تو مبدأ نیستیم، اول بریم مبدأ
     var first = steps[0].from;
     if (getCurrentSceneLabel() === first) { stepAt(0); }
     else { goToScene(first); waitForScene(first, token, function () { stepAt(0); }); }
@@ -576,38 +514,36 @@ var btn = document.createElement('button');
   });
 
   /* ============================================================
-     9) API عمومی برای دیباگ / استفادهٔ بیرونی
+     9) API عمومی
      ============================================================ */
   window.SmartNav = {
     __loaded: true,
     config: CFG,
     graph: GRAPH,
     dijkstra: dijkstra,
-    navigate: function (from, to) {           // SmartNav.navigate('پذیرش1', 'کتابخونه')
-var r = dijkstra(from, to);
+    navigate: function (from, to) {
+      var r = dijkstra(from, to);
       if (!r) { warn('no path', from, '→', to); return false; }
       fromSel.value = from; toSel.value = to; setPanelOpen(true); runPath(r, to); return true;
     },
     stop: function () { cancelBtn.click(); },
     currentScene: getCurrentSceneLabel,
     player: getActivePanoramaPlayer,
-    camera: function () { return getCamCtx().camera; },
-    rotateTo: function (yaw, pitch) { smoothRotate(yaw, pitch, newToken(), function (ok) { log('rotateTo done, ok =', ok, '| strategy =', cameraStrategy); }); },
+    rotateTo: function (yaw, pitch) {
+      smoothRotate(yaw, pitch, newToken(), function (ok) { log('rotateTo done, ok =', ok); });
+    },
     resetStrategy: function () { cameraStrategy = undefined; },
     get strategy() { return cameraStrategy; },
-    /* گزارش تشخیصی — خروجی این رو بفرست تا دقیق ببینم چی در دسترسه */
     diag: function () {
       var root = getRootPlayer(), ctx = getCamCtx(), cam = {};
-      if (ctx.camera) { try { cam = readCam(ctx.camera); } catch (e) { cam = { error: String(e) }; } }
+      if (ctx.player) { try { cam = readCam(ctx.player); } catch (e) { cam = { error: String(e) }; } }
       var d = {
-        version: 'v30',
+        version: 'v31',
         tourFound: !!window.tour,
         rootPlayer: !!root,
         rootHas: root ? ['getMainViewer', 'getActivePlayerWithViewer', 'getActiveMediaWithViewer', 'getByClassName', 'getMediaByName', 'setMediaByName'].filter(function (m) { return typeof root[m] === 'function'; }) : [],
         panoramaPlayer: !!ctx.player,
         playerHas: ctx.player ? ['setPosition', 'moveTo', 'get', 'set', 'pauseCamera', 'resumeCamera'].filter(function (m) { return typeof ctx.player[m] === 'function'; }) : [],
-        camera: !!ctx.camera,
-        cameraHas: ctx.camera ? ['get', 'set', 'setPosition', 'moveTo'].filter(function (m) { return typeof ctx.camera[m] === 'function'; }) : [],
         cameraState: cam,
         currentScene: getCurrentSceneLabel(),
         strategy: cameraStrategy === undefined ? '(not tested yet)' : cameraStrategy,
@@ -617,5 +553,5 @@ var r = dijkstra(from, to);
       return d;
     }
   };
-  log('loaded v30. scenes:', labels.length, '| current scene:', getCurrentSceneLabel());
+  log('loaded v31. scenes:', labels.length, '| current scene:', getCurrentSceneLabel());
 })();
