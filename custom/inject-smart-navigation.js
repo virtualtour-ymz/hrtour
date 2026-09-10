@@ -1,17 +1,4 @@
-﻿ /* ============================================================
-   inject-smart-navigation.js  (v31)
-   مسیریابی هوشمند برای تور مجازی بیمارستان (3DVista)
-
-   تغییرات v31 نسبت به v30 (رفع کامل مشکل چرخش):
-   - طبق diag: yaw/pitch/roll/hfov از خود player خونده می‌شن، نه camera.
-     camera.get('yaw') مقدار undefined برمی‌گردوند → smoothRotate شکست می‌خورد.
-   - setPosition(yaw, pitch, roll, hfov) نیاز به ۴ پارامتر عددی داره
-     (roll=0، hfov از p.get('hfov') گرفته می‌شه). قبلاً undefined پاس می‌شد.
-   - استراتژی camera.set حذف شد (بی‌فایده بود).
-   - فقط player.setPosition به‌عنوان استراتژی معتبر باقی موند.
-   - readCam/applyCam/smoothRotate/diag/getCamCtx اصلاح شدن.
-   ============================================================ */
-(function () {
+﻿(function () {
   'use strict';
 
   if (window.SmartNav && window.SmartNav.__loaded) {
@@ -19,9 +6,9 @@
     return;
   }
 
-  /* ============================================================
+  / ============================================================
      0) تنظیمات
-     ============================================================ */
+     ============================================================ /
   var CFG = {
     ROTATE_DEG_PER_SEC: 30,     // سرعت چرخش (درجه بر ثانیه) — کمتر = آرام‌تر
     ROTATE_MIN_MS: 1800,        // حداقل زمان چرخش
@@ -41,9 +28,9 @@
   function log() { if (CFG.DEBUG && window.console) console.log.apply(console, ['[SmartNav]'].concat([].slice.call(arguments))); }
   function warn() { if (window.console) console.warn.apply(console, ['[SmartNav]'].concat([].slice.call(arguments))); }
 
-  /* ============================================================
+  / ============================================================
      1) گراف صحنه‌ها
-     ============================================================ */
+     ============================================================ /
   var GRAPH = {
     "ورودی اصلی":      [{ to: "ورودی کلینیک", yaw: 75.29 }, { to: "پذیرش1", yaw: 1.08 }, { to: "ورودی اورژانس", yaw: -61.35 }],
     "ورودی کلینیک":     [{ to: "روبروی آزمایشگاه", yaw: 1.97 }, { to: "ورودی اصلی", yaw: -91.65 }],
@@ -79,9 +66,12 @@
     });
     if (missing.length) warn('این یال‌ها yaw ندارن؛ برای چرخش نرم مقدارشون رو در GRAPH اضافه کن:\n  ' + missing.join('\n  '));
   })();
- /* ============================================================
+
+  / =============================
+
+===============================
      2) Dijkstra
-     ============================================================ */
+     ============================================================ /
   function dijkstra(start, end) {
     if (!(start in GRAPH) || !(end in GRAPH)) return null;
     var dist = {}, prev = {}, visited = {};
@@ -112,9 +102,9 @@
     return { steps: steps, cost: dist[end] };
   }
 
-  /* ============================================================
+  / ============================================================
      3) دسترسی به موتور 3DVista
-     ============================================================ */
+     ============================================================ /
   function getRootPlayer() {
     var tour = window.tour;
     if (!tour) return null;
@@ -149,7 +139,7 @@
     return null;
   }
 
-  /* اسم صحنه فعلی */
+  / اسم صحنه فعلی /
   function getCurrentSceneLabel() {
     try {
       var root = getRootPlayer();
@@ -164,7 +154,7 @@
       var pano = p && p.get('panorama');
       if (pano && pano.get) return pano.get('label') || null;
     } catch (e) {}
-    /* fallback: از پارامتر media-name تو hash */
+    / fallback: از پارامتر media-name تو hash /
     try {
       var m2 = window.location.hash.match(/media-name=([^&]+)/);
       if (m2) return decodeURIComponent(m2[1]);
@@ -172,7 +162,7 @@
     return null;
   }
 
-  /* ============================================================
+  / ============================================================
      4) جابجایی با hash رسمی 3DVista
      ============================================================ */
   function goToScene(label, yaw, pitch, fov) {
@@ -180,22 +170,23 @@
     if (typeof yaw === 'number') {
       hash += '&yaw=' + yaw.toFixed(2);
       hash += '&pitch=' + ((typeof pitch === 'number' && pitch !== 0) ? pitch.toFixed(2) : '0.1');
- if (typeof fov === 'number') hash += '&fov=' + fov.toFixed(2);
+      if (typeof fov === 'number') hash += '&fov=' + fov.toFixed(2);
     }
     log('hash ->', hash);
     if (window.location.hash === '#' + hash) {
       try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { window.location.hash = ''; }
     }
-    window.location.hash = hash;
+
+window.location.hash = hash;
   }
 
   /* ============================================================
      5) چرخش نرم دوربین — v31: فقط player.setPosition
-     ============================================================ */
+     ============================================================ /
   var EASINGS = {
-    smootherstep:  function (t) { return t * t * t * (t * (t * 6 - 15) + 10); },
-    easeInOutSine: function (t) { return -(Math.cos(Math.PI * t) - 1) / 2; },
-    easeInOutCubic:function (t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+    smootherstep:  function (t) { return t  t  t  (t  (t  6 - 15) + 10); },
+    easeInOutSine: function (t) { return -(Math.cos(Math.PI  t) - 1) / 2; },
+    easeInOutCubic:function (t) { return t < 0.5 ? 4  t  t  t : 1 - Math.pow(-2  t + 2, 3) / 2; }
   };
   function ease(t) { return (EASINGS[CFG.EASING] || EASINGS.smootherstep)(Math.max(0, Math.min(1, t))); }
   function shortestYawDelta(from, to) { return ((to - from + 540) % 360) - 180; }
@@ -203,10 +194,10 @@
 
   function rotationDuration(deltaYaw, deltaPitch) {
     var ang = Math.max(Math.abs(deltaYaw), Math.abs(deltaPitch));
-    return clamp((ang / CFG.ROTATE_DEG_PER_SEC) * 1000, CFG.ROTATE_MIN_MS, CFG.ROTATE_MAX_MS);
+    return clamp((ang / CFG.ROTATE_DEG_PER_SEC)  1000, CFG.ROTATE_MIN_MS, CFG.ROTATE_MAX_MS);
   }
 
-  /* v31: خوندن مقادیر از خود player (نه camera) */
+  /* v31: خوندن مقادیر از خود player (نه camera) /
   function readCam(player) {
     var yaw = player.get('yaw');
     var pitch = player.get('pitch');
@@ -221,9 +212,9 @@
     };
   }
 
-  /* v31: setPosition همیشه با ۴ پارامتر عددی */
+  / v31: setPosition همیشه با ۴ پارامتر عددی /
   function applyCam(ctx, yaw, pitch, st) {
-    ctx.player.setPosition(yaw, pitch, st.roll  0, st.hfov  90);
+    ctx.player.setPosition(yaw, pitch, st.roll || 0, st.hfov || 90);
   }
 
   function getCamCtx() {
@@ -232,7 +223,7 @@
 
   var cameraStrategy = undefined;   // فقط برای سازگاری با diag نگه داشته شده
 
-  /* چرخش نرم */
+  / چرخش نرم /
   function smoothRotate(targetYaw, targetPitch, token, callback) {
     var ctx = getCamCtx();
     if (!ctx.player || typeof ctx.player.get !== 'function') {
@@ -259,14 +250,14 @@
       if (startTs === null) startTs = ts;
       var t = Math.min(1, (ts - startTs) / duration);
       var k = ease(t);
-      try { applyCam(ctx, st.yaw + dYaw * k, st.pitch + dPitch * k, st); }
+      try { applyCam(ctx, st.yaw + dYaw  k, st.pitch + dPitch  k, st); }
       catch (e) { warn('setPosition threw:', e); callback(false); return; }
       if (t < 1) requestAnimationFrame(frame); else callback(true);
     }
     requestAnimationFrame(frame);
   }
 
-  /* منتظر لود صحنه */
+  / منتظر لود صحنه /
   function waitForScene(label, token, callback) {
     if (getCurrentSceneLabel() === null) { schedule(token, callback, CFG.SCENE_LOAD_FALLBACK_MS); return; }
     var started = Date.now();
@@ -278,17 +269,20 @@
       schedule(token, poll, 120);
     })();
   }
- function schedule(token, fn, ms) {
+
+  function schedule(token, fn, ms) {
     var id = setTimeout(function () { if (token.alive) fn(); }, ms);
     token.timers.push(id);
     return id;
   }
 
-  /* ============================================================
+  / ============================================================
      6) استایل
      ============================================================ */
   var css = ''
-    + '@import url("https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap");'
+    + '@import url("https://fonts.googleapis.com/css2?family=V
+
+azirmatn:wght@400;500;600;700&display=swap");'
     + '#snav-btn{position:fixed;top:calc(14px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:2147483647;'
     + 'padding:11px 20px;border-radius:999px;border:1px solid rgba(212,175,55,.35);'
     + 'background:linear-gradient(160deg,rgba(11,31,36,.92),rgba(15,46,52,.88));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);'
@@ -324,13 +318,15 @@
     + '.snav-field select:focus{border-color:#2dd4bf;}'
     + '.snav-field select option{background-color:#0d2226;color:#eaf6f4;}'
     + '#snav-go{width:100%;margin-top:6px;padding:13px;border:none;border-radius:12px;cursor:pointer;'
- + 'background:linear-gradient(120deg,#2dd4bf,#1a8f82);color:#06201d;font-family:"Vazirmatn",sans-serif;'
+    + 'background:linear-gradient(120deg,#2dd4bf,#1a8f82);color:#06201d;font-family:"Vazirmatn",sans-serif;'
     + 'font-weight:700;font-size:14px;transition:filter .2s,transform .15s;-webkit-tap-highlight-color:transparent;}'
     + '#snav-go:hover{filter:brightness(1.08);}'
     + '#snav-go:active{transform:scale(.98);}'
     + '#snav-go:disabled{opacity:.5;cursor:not-allowed;}'
     + '#snav-status{margin-top:14px;padding:12px 14px;border-radius:12px;background:rgba(212,175,55,.08);'
-    + 'border:1px solid rgba(212,175,55,.2);font-size:12.5px;color:#f0dfa8;display:none;align-items:center;justify-content:space-between;gap:10px;}'
+    + 'border:1px solid rgba(212,175,55,.2);font-size:12.5px;color:#f0dfa8;display:none;align-item
+
+s:center;justify-content:space-between;gap:10px;}'
     + '#snav-status.show{display:flex;}'
     + '#snav-status .txt{flex:1;line-height:1.6;}'
     + '#snav-status b{font-family:"JetBrains Mono",monospace;color:#ffe9a8;}'
@@ -383,7 +379,7 @@
       '<button type="button" class="snav-link" id="snav-here">موقعیت فعلی من</button></div>' +
       '<select id="snav-from">' + optionsHtml + '</select></div>' +
     '<div class="snav-field"><div class="lbl"><label for="snav-to">مقصد</label></div><select id="snav-to">' + optionsHtml + '</select></div>' +
- '<button id="snav-go" type="button">شروع مسیریابی</button>' +
+    '<button id="snav-go" type="button">شروع مسیریابی</button>' +
     '<div id="snav-err" role="alert"></div>' +
     '<div id="snav-status" aria-live="polite"><div class="txt"><div id="snav-status-txt"></div><div id="snav-progress"><i></i></div></div>' +
       '<button id="snav-cancel" type="button">توقف</button></div>';
@@ -396,7 +392,9 @@
   var statusBox = panel.querySelector('#snav-status');
   var statusTxt = panel.querySelector('#snav-status-txt');
   var progressBar = panel.querySelector('#snav-progress i');
-  var errBox = panel.querySelector('#snav-err');
+  var errBox = panel.querySelector('#s
+
+nav-err');
   var cancelBtn = panel.querySelector('#snav-cancel');
 
   function setPanelOpen(open) {
@@ -417,7 +415,7 @@
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && panel.classList.contains('open')) setPanelOpen(false); });
 
   function relocateUI() {
-    var fsEl = document.fullscreenElement  document.webkitFullscreenElement  document.mozFullScreenElement || document.msFullscreenElement;
+    var fsEl = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
     var target = fsEl || document.body;
     if (btn.parentNode !== target) target.appendChild(btn);
     if (panel.parentNode !== target) target.appendChild(panel);
@@ -429,10 +427,10 @@
   function showError(msg) { errBox.textContent = msg; errBox.style.display = 'block'; }
   function setStatus(html, frac) {
     statusTxt.innerHTML = html;
-    if (typeof frac === 'number') progressBar.style.width = Math.round(clamp(frac, 0, 1) * 100) + '%';
+    if (typeof frac === 'number') progressBar.style.width = Math.round(clamp(frac, 0, 1)  100) + '%';
   }
 
-  /* ============================================================
+  / ============================================================
      8) اجرای مسیر
      ============================================================ */
   var activeToken = null;
@@ -470,7 +468,7 @@
       var frac = idx / total;
 
       schedule(token, function () {
- if (typeof s.yaw !== 'number') { jump(); return; }
+        if (typeof s.yaw !== 'number') { jump(); return; }
         setStatus('گام <b>' + (idx + 1) + '</b> از <b>' + total + '</b> — چرخش به سمت «' + escapeHtml(s.to) + '»', frac + 0.3 / total);
         smoothRotate(s.yaw, s.pitch, token, function (ok) {
           if (!token.alive) return;
@@ -493,7 +491,9 @@
     else { goToScene(first); waitForScene(first, token, function () { stepAt(0); }); }
   }
 
-  cancelBtn.addEventListener('click', function () {
+  cancelBtn.addEventListener('click', function
+
+() {
     if (!activeToken) return;
     var t = activeToken;
     killToken(t); activeToken = null;
