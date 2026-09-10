@@ -474,8 +474,8 @@ var btn = document.createElement('button');
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && panel.classList.contains('open')) setPanelOpen(false); });
 
   /* فول‌اسکرین: المنت‌های خارج از عنصر فول‌اسکرین دیده نمی‌شن → دکمه/پنل رو منتقل می‌کنیم */
-  function relocateUI() {
-    var fsEl = document.fullscreenElement  document.webkitFullscreenElement  document.mozFullScreenElement || document.msFullscreenElement;
+ function relocateUI() {
+    var fsEl = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
     var target = fsEl || document.body;
     if (btn.parentNode !== target) target.appendChild(btn);
     if (panel.parentNode !== target) target.appendChild(panel);
