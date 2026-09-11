@@ -1,3 +1,16 @@
+/* ============================================================
+   inject-smart-navigation.js  (v31)
+   مسیریابی هوشمند برای تور مجازی بیمارستان (3DVista)
+
+   تغییرات v31 نسبت به v30 (رفع کامل مشکل چرخش):
+   - طبق diag: yaw/pitch/roll/hfov از خود player خونده می‌شن، نه camera.
+     camera.get('yaw') مقدار undefined برمی‌گردوند → smoothRotate شکست می‌خورد.
+   - setPosition(yaw, pitch, roll, hfov) نیاز به ۴ پارامتر عددی داره
+     (roll=0، hfov از p.get('hfov') گرفته می‌شه). قبلاً undefined پاس می‌شد.
+   - استراتژی camera.set حذف شد (بی‌فایده بود).
+   - فقط player.setPosition به‌عنوان استراتژی معتبر باقی موند.
+   - readCam/applyCam/smoothRotate/diag/getCamCtx اصلاح شدن.
+   ============================================================ */
 (function () {
   'use strict';
 
@@ -6,8 +19,9 @@
     return;
   }
 
-  
-     //============================================================ /
+  /* ============================================================
+     0) تنظیمات
+     ============================================================ */
   var CFG = {
     ROTATE_DEG_PER_SEC: 30,     // سرعت چرخش (درجه بر ثانیه) — کمتر = آرام‌تر
     ROTATE_MIN_MS: 1800,        // حداقل زمان چرخش
@@ -27,9 +41,9 @@
   function log() { if (CFG.DEBUG && window.console) console.log.apply(console, ['[SmartNav]'].concat([].slice.call(arguments))); }
   function warn() { if (window.console) console.warn.apply(console, ['[SmartNav]'].concat([].slice.call(arguments))); }
 
-   //============================================================
-    
-     //============================================================ /
+  /* ============================================================
+     1) گراف صحنه‌ها
+     ============================================================ */
   var GRAPH = {
     "ورودی اصلی":      [{ to: "ورودی کلینیک", yaw: 75.29 }, { to: "پذیرش1", yaw: 1.08 }, { to: "ورودی اورژانس", yaw: -61.35 }],
     "ورودی کلینیک":     [{ to: "روبروی آزمایشگاه", yaw: 1.97 }, { to: "ورودی اصلی", yaw: -91.65 }],
@@ -66,9 +80,9 @@
     if (missing.length) warn('این یال‌ها yaw ندارن؛ برای چرخش نرم مقدارشون رو در GRAPH اضافه کن:\n  ' + missing.join('\n  '));
   })();
 
-  //=============================
-    
-     //============================================================ /
+  /* ============================================================
+     2) Dijkstra
+     ============================================================ */
   function dijkstra(start, end) {
     if (!(start in GRAPH) || !(end in GRAPH)) return null;
     var dist = {}, prev = {}, visited = {};
@@ -99,9 +113,9 @@
     return { steps: steps, cost: dist[end] };
   }
 
-   //============================================================
-    
-     //============================================================ /
+  /* ============================================================
+     3) دسترسی به موتور 3DVista
+     ============================================================ */
   function getRootPlayer() {
     var tour = window.tour;
     if (!tour) return null;
@@ -136,7 +150,7 @@
     return null;
   }
 
-  
+  /* اسم صحنه فعلی */
   function getCurrentSceneLabel() {
     try {
       var root = getRootPlayer();
@@ -151,7 +165,7 @@
       var pano = p && p.get('panorama');
       if (pano && pano.get) return pano.get('label') || null;
     } catch (e) {}
-    / fallback: از پارامتر media-name تو hash /
+    /* fallback: از پارامتر media-name تو hash */
     try {
       var m2 = window.location.hash.match(/media-name=([^&]+)/);
       if (m2) return decodeURIComponent(m2[1]);
@@ -159,9 +173,9 @@
     return null;
   }
 
-   //============================================================
-     
-     //============================================================ */
+  /* ============================================================
+     4) جابجایی با hash رسمی 3DVista
+     ============================================================ */
   function goToScene(label, yaw, pitch, fov) {
     var hash = 'media-name=' + encodeURIComponent(label);
     if (typeof yaw === 'number') {
@@ -173,17 +187,16 @@
     if (window.location.hash === '#' + hash) {
       try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { window.location.hash = ''; }
     }
-
-window.location.hash = hash;
+    window.location.hash = hash;
   }
 
-   //============================================================
-    
-     //============================================================ /
+  /* ============================================================
+     5) چرخش نرم دوربین — v31: فقط player.setPosition
+     ============================================================ */
   var EASINGS = {
-    smootherstep:  function (t) { return t  t  t  (t  (t  6 - 15) + 10); },
-    easeInOutSine: function (t) { return -(Math.cos(Math.PI  t) - 1) / 2; },
-    easeInOutCubic:function (t) { return t < 0.5 ? 4  t  t  t : 1 - Math.pow(-2  t + 2, 3) / 2; }
+    smootherstep:  function (t) { return t * t * t * (t * (t * 6 - 15) + 10); },
+    easeInOutSine: function (t) { return -(Math.cos(Math.PI * t) - 1) / 2; },
+    easeInOutCubic:function (t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
   };
   function ease(t) { return (EASINGS[CFG.EASING] || EASINGS.smootherstep)(Math.max(0, Math.min(1, t))); }
   function shortestYawDelta(from, to) { return ((to - from + 540) % 360) - 180; }
@@ -191,10 +204,10 @@ window.location.hash = hash;
 
   function rotationDuration(deltaYaw, deltaPitch) {
     var ang = Math.max(Math.abs(deltaYaw), Math.abs(deltaPitch));
-    return clamp((ang / CFG.ROTATE_DEG_PER_SEC)  1000, CFG.ROTATE_MIN_MS, CFG.ROTATE_MAX_MS);
+    return clamp((ang / CFG.ROTATE_DEG_PER_SEC) * 1000, CFG.ROTATE_MIN_MS, CFG.ROTATE_MAX_MS);
   }
 
-   
+  /* v31: خوندن مقادیر از خود player (نه camera) */
   function readCam(player) {
     var yaw = player.get('yaw');
     var pitch = player.get('pitch');
@@ -209,7 +222,7 @@ window.location.hash = hash;
     };
   }
 
-  
+  /* v31: setPosition همیشه با ۴ پارامتر عددی */
   function applyCam(ctx, yaw, pitch, st) {
     ctx.player.setPosition(yaw, pitch, st.roll || 0, st.hfov || 90);
   }
@@ -220,7 +233,7 @@ window.location.hash = hash;
 
   var cameraStrategy = undefined;   // فقط برای سازگاری با diag نگه داشته شده
 
-  
+  /* چرخش نرم */
   function smoothRotate(targetYaw, targetPitch, token, callback) {
     var ctx = getCamCtx();
     if (!ctx.player || typeof ctx.player.get !== 'function') {
@@ -247,13 +260,14 @@ window.location.hash = hash;
       if (startTs === null) startTs = ts;
       var t = Math.min(1, (ts - startTs) / duration);
       var k = ease(t);
-      try { applyCam(ctx, st.yaw + dYaw  k, st.pitch + dPitch  k, st); }
+      try { applyCam(ctx, st.yaw + dYaw * k, st.pitch + dPitch * k, st); }
       catch (e) { warn('setPosition threw:', e); callback(false); return; }
       if (t < 1) requestAnimationFrame(frame); else callback(true);
     }
     requestAnimationFrame(frame);
   }
 
+  /* منتظر لود صحنه */
   function waitForScene(label, token, callback) {
     if (getCurrentSceneLabel() === null) { schedule(token, callback, CFG.SCENE_LOAD_FALLBACK_MS); return; }
     var started = Date.now();
@@ -272,13 +286,11 @@ window.location.hash = hash;
     return id;
   }
 
-   //============================================================
-     
-     //============================================================ 
+  /* ============================================================
+     6) استایل
+     ============================================================ */
   var css = ''
-    + '@import url("https://fonts.googleapis.com/css2?family=V
-
-azirmatn:wght@400;500;600;700&display=swap");'
+    + '@import url("https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap");'
     + '#snav-btn{position:fixed;top:calc(14px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:2147483647;'
     + 'padding:11px 20px;border-radius:999px;border:1px solid rgba(212,175,55,.35);'
     + 'background:linear-gradient(160deg,rgba(11,31,36,.92),rgba(15,46,52,.88));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);'
@@ -320,9 +332,7 @@ azirmatn:wght@400;500;600;700&display=swap");'
     + '#snav-go:active{transform:scale(.98);}'
     + '#snav-go:disabled{opacity:.5;cursor:not-allowed;}'
     + '#snav-status{margin-top:14px;padding:12px 14px;border-radius:12px;background:rgba(212,175,55,.08);'
-    + 'border:1px solid rgba(212,175,55,.2);font-size:12.5px;color:#f0dfa8;display:none;align-item
-
-s:center;justify-content:space-between;gap:10px;}'
+    + 'border:1px solid rgba(212,175,55,.2);font-size:12.5px;color:#f0dfa8;display:none;align-items:center;justify-content:space-between;gap:10px;}'
     + '#snav-status.show{display:flex;}'
     + '#snav-status .txt{flex:1;line-height:1.6;}'
     + '#snav-status b{font-family:"JetBrains Mono",monospace;color:#ffe9a8;}'
@@ -346,9 +356,9 @@ s:center;justify-content:space-between;gap:10px;}'
   styleEl.textContent = css;
   document.head.appendChild(styleEl);
 
-   //============================================================
-     
-     //============================================================ 
+  /* ============================================================
+     7) ساخت UI
+     ============================================================ */
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; });
   }
@@ -388,9 +398,7 @@ s:center;justify-content:space-between;gap:10px;}'
   var statusBox = panel.querySelector('#snav-status');
   var statusTxt = panel.querySelector('#snav-status-txt');
   var progressBar = panel.querySelector('#snav-progress i');
-  var errBox = panel.querySelector('#s
-
-nav-err');
+  var errBox = panel.querySelector('#snav-err');
   var cancelBtn = panel.querySelector('#snav-cancel');
 
   function setPanelOpen(open) {
@@ -423,12 +431,12 @@ nav-err');
   function showError(msg) { errBox.textContent = msg; errBox.style.display = 'block'; }
   function setStatus(html, frac) {
     statusTxt.innerHTML = html;
-    if (typeof frac === 'number') progressBar.style.width = Math.round(clamp(frac, 0, 1)  100) + '%';
+    if (typeof frac === 'number') progressBar.style.width = Math.round(clamp(frac, 0, 1) * 100) + '%';
   }
 
-  //============================================================
-     
-     //============================================================ */
+  /* ============================================================
+     8) اجرای مسیر
+     ============================================================ */
   var activeToken = null;
 
   function newToken() { return { alive: true, timers: [] }; }
@@ -487,9 +495,7 @@ nav-err');
     else { goToScene(first); waitForScene(first, token, function () { stepAt(0); }); }
   }
 
-  cancelBtn.addEventListener('click', function
-
-() {
+  cancelBtn.addEventListener('click', function () {
     if (!activeToken) return;
     var t = activeToken;
     killToken(t); activeToken = null;
@@ -509,9 +515,9 @@ nav-err');
     runPath(result, toLabel);
   });
 
-  //============================================================
-   
-     //============================================================ */
+  /* ============================================================
+     9) API عمومی
+     ============================================================ */
   window.SmartNav = {
     __loaded: true,
     config: CFG,
