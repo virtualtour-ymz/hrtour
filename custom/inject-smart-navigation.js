@@ -1,8 +1,8 @@
 /* ============================================================
-   SmartNav v34 — مسیریابی هوشمند تور مجازی بیمارستان (3DVista)
-   - گراف ۵۰ صحنه، Dijkstra
+   SmartNav v35 — مسیریابی هوشمند تور مجازی بیمارستان (3DVista)
+   - مبدأ: همه‌ی صحنه‌ها (دسته‌بندی طبقات)
+   - مقصد: فقط ۲۸ مقصد کلیدی
    - چرخش نرم با player.setPosition
-   - دسته‌بندی بر اساس طبقات
    ============================================================ */
 (function () {
   'use strict';
@@ -155,38 +155,84 @@
     });
   });
 
-  /* ── دسته‌بندی بر اساس طبقه ─────────────────────────────── */
-  var CATEGORIES = [
-    { label: '🏠 طبقه همکف', scenes: [
+  /* ── دسته‌بندی مبدأ (همه‌ی صحنه‌ها) ────────────────────── */
+  var FROM_CATEGORIES = [
+    { label: 'طبقه همکف', scenes: [
       'ورودی اصلی', 'پذیرش1', 'پذیرش2', 'تریاژ', 'بستری اورژانس', 'ورودی اورژانس',
       'راهنمای خطوط', 'ورودی رادیولوژی', 'رادیولوژی', 'سونوگرافی', 'ماموگرافی',
       'رادیوگرافی ساده', 'MRI', 'ورودی درمانگاه', 'درمانگاه', 'آزمایشگاه',
       'دپارتمان آموزشی پژوهشی', 'سالن مطالعه', 'آسانسور همکف', 'نمازخانه'
     ]},
-    { label: '1️⃣ طبقه اول', scenes: [
+    { label: 'طبقه اول', scenes: [
       'طبقه اول', 'پذیرش امید', 'معاینه زنان', 'آزمایشگاه (کلینیک امید)',
-      'مراقبت های ویژه قلبی', 'بخش مراقبت های ویژه', 'آسانسور طبقه اول'
+      'مراقبت های ویژه قلبی', 'بخش مراقبت های ویژه', 'آسانسور طبقه اول',
+      'راهرو اتاق عمل', 'اتاق عمل (1)', 'اتاق عمل (2)', 'اتاق عمل (3)',
+      'اتاق عمل (4)', 'ریکاوری'
     ]},
-    { label: '2️⃣ طبقه دوم', scenes: [
+    { label: 'طبقه دوم', scenes: [
       'بخش داخلی', 'بخش نورولوژی', 'آسانسور طبقه دوم'
     ]},
-    { label: '3️⃣ طبقه سوم', scenes: [
+    { label: 'طبقه سوم', scenes: [
       'ورودی بخش ها', 'سایکوسوماتیک', 'فیزیوتراپی', 'آسانسور طبقه سوم'
     ]},
-    { label: '4️⃣ طبقه چهارم', scenes: [
+    { label: 'طبقه چهارم', scenes: [
       'ورودی جراحی', 'بخش جراحی', 'اتاق vip', 'ورودی اطفال', 'بخش اطفال',
       'ایستگاه پرستاری اطفال', 'مراقبت های ویژه کودکان', 'اتاق بازی',
       'رگ گیری اطفال', 'آسانسور طبقه چهارم'
-    ]},
-    { label: '🔪 اتاق عمل', scenes: [
-      'راهرو اتاق عمل', 'اتاق عمل (1)', 'اتاق عمل (2)',
-      'اتاق عمل (3)', 'اتاق عمل (4)', 'ریکاوری'
     ]}
   ];
 
-  function buildOptions() {
+  /* ── دسته‌بندی مقصد (فقط مقصدهای کلیدی) ───────────────── */
+  var TO_CATEGORIES = [
+    { label: 'طبقه همکف', items: [
+      { label: 'تریاژ',                        to: 'تریاژ' },
+      { label: 'بستری اورژانس',                to: 'بستری اورژانس' },
+      { label: 'ورودی اورژانس',                to: 'ورودی اورژانس' },
+      { label: 'پذیرش',                        to: 'پذیرش1' },
+      { label: 'ورودی درمانگاه',               to: 'ورودی درمانگاه' },
+      { label: 'درمانگاه',                     to: 'درمانگاه' },
+      { label: 'آزمایشگاه',                    to: 'آزمایشگاه' },
+      { label: 'رادیولوژی (واحد تصویربرداری)', to: 'رادیولوژی' },
+      { label: 'دپارتمان آموزشی پژوهشی',       to: 'دپارتمان آموزشی پژوهشی' },
+      { label: 'سالن مطالعه',                  to: 'سالن مطالعه' },
+      { label: 'نمازخانه',                     to: 'نمازخانه' },
+      { label: 'آسانسور همکف',                 to: 'آسانسور همکف' }
+    ]},
+    { label: 'طبقه اول', items: [
+      { label: 'اتاق عمل',                     to: 'راهرو اتاق عمل' },
+      { label: 'بخش مراقبت های ویژه',          to: 'بخش مراقبت های ویژه' },
+      { label: 'مراقبت های ویژه قلبی',         to: 'مراقبت های ویژه قلبی' },
+      { label: 'کلینیک ناباروری امید',         to: 'پذیرش امید' },
+      { label: 'آسانسور طبقه اول',             to: 'آسانسور طبقه اول' }
+    ]},
+    { label: 'طبقه دوم', items: [
+      { label: 'بخش داخلی',                    to: 'بخش داخلی' },
+      { label: 'بخش نورولوژی',                 to: 'بخش نورولوژی' },
+      { label: 'آسانسور طبقه دوم',             to: 'آسانسور طبقه دوم' }
+    ]},
+    { label: 'طبقه سوم', items: [
+      { label: 'سایکوسوماتیک',                 to: 'سایکوسوماتیک' },
+      { label: 'فیزیوتراپی',                   to: 'فیزیوتراپی' },
+      { label: 'آسانسور طبقه سوم',             to: 'آسانسور طبقه سوم' }
+    ]},
+    { label: 'طبقه چهارم', items: [
+      { label: 'بخش جراحی',                    to: 'بخش جراحی' },
+      { label: 'اتاق vip',                     to: 'اتاق vip' },
+      { label: 'بخش اطفال',                    to: 'بخش اطفال' },
+      { label: 'مراقبت های ویژه کودکان',       to: 'مراقبت های ویژه کودکان' },
+      { label: 'آسانسور طبقه چهارم',           to: 'آسانسور طبقه چهارم' }
+    ]}
+  ];
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function buildFromOptions() {
     var html = '', used = {};
-    CATEGORIES.forEach(function (cat) {
+    FROM_CATEGORIES.forEach(function (cat) {
       var items = cat.scenes.filter(function (s) { return s in GRAPH; });
       if (!items.length) return;
       items.forEach(function (s) { used[s] = true; });
@@ -196,17 +242,25 @@
     });
     var others = Object.keys(GRAPH).filter(function (s) { return !used[s]; });
     if (others.length) {
-      html += '<optgroup label="📌 سایر">';
+      html += '<optgroup label="سایر">';
       others.forEach(function (s) { html += '<option value="' + esc(s) + '">' + esc(s) + '</option>'; });
       html += '</optgroup>';
     }
     return html;
   }
 
-  function esc(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  function buildToOptions() {
+    var html = '';
+    TO_CATEGORIES.forEach(function (cat) {
+      var items = cat.items.filter(function (it) { return it.to in GRAPH; });
+      if (!items.length) return;
+      html += '<optgroup label="' + esc(cat.label) + '">';
+      items.forEach(function (it) {
+        html += '<option value="' + esc(it.to) + '">' + esc(it.label) + '</option>';
+      });
+      html += '</optgroup>';
     });
+    return html;
   }
 
   /* ── Dijkstra ───────────────────────────────────────────── */
@@ -433,7 +487,8 @@
   document.head.appendChild(styleEl);
 
   /* ── ساخت UI ───────────────────────────────────────────── */
-  var options = buildOptions();
+  var fromOptions = buildFromOptions();
+  var toOptions   = buildToOptions();
 
   var btn = document.createElement('button');
   btn.id = 'snav-btn';
@@ -450,9 +505,9 @@
     '<h3><span class="dot"></span>مسیریابی هوشمند تور</h3>' +
     '<div class="snav-field"><div class="lbl"><label for="snav-from">مبدأ</label>' +
       '<button type="button" class="snav-link" id="snav-here">موقعیت فعلی من</button></div>' +
-      '<select id="snav-from">' + options + '</select></div>' +
+      '<select id="snav-from">' + fromOptions + '</select></div>' +
     '<div class="snav-field"><div class="lbl"><label for="snav-to">مقصد</label></div>' +
-      '<select id="snav-to">' + options + '</select></div>' +
+      '<select id="snav-to">' + toOptions + '</select></div>' +
     '<button id="snav-go" type="button">شروع مسیریابی</button>' +
     '<div id="snav-err" role="alert"></div>' +
     '<div id="snav-status" aria-live="polite"><div class="txt"><div id="snav-status-txt"></div><div id="snav-progress"><i></i></div></div>' +
@@ -548,12 +603,12 @@
 
       schedule(token, function () {
         if (typeof s.yaw !== 'number') { jump(); return; }
-        setStatus('گام <b>' + (idx + 1) + '</b> از <b>' + total + '</b> — چرخش به «' + esc(s.to) + '»', frac + 0.3 / total);
+        setStatus('گام <b>' + (idx + 1) + '</b> از <b>' + total + '</b> — چرخش به سمت «' + esc(s.to) + '»', frac + 0.3 / total);
         smoothRotate(s.yaw, s.pitch, token, function (ok) {
           if (!token.alive) return;
           if (ok) { schedule(token, jump, CFG.HOLD_BEFORE_JUMP_MS); return; }
           goToScene(s.from, s.yaw, s.pitch, s.fov);
-          schedule(token, jump, CFG.HASH_ROTATE_WAIT_MS || 1600);
+          schedule(token, jump, 1600);
         });
       }, CFG.SETTLE_AFTER_LOAD_MS);
 
@@ -596,7 +651,8 @@
     __loaded: true,
     config: CFG,
     graph: GRAPH,
-    categories: CATEGORIES,
+    fromCategories: FROM_CATEGORIES,
+    toCategories: TO_CATEGORIES,
     dijkstra: dijkstra,
     navigate: function (from, to) {
       var r = dijkstra(from, to);
@@ -617,19 +673,20 @@
       var cam = {};
       if (p) { try { cam = readPlayer(p); } catch (e) { cam = { error: String(e) }; } }
       var d = {
-        version: 'v34',
+        version: 'v35',
         tourFound: !!window.tour,
         player: !!p,
         playerHas: p ? ['setPosition', 'moveTo', 'get', 'set'].filter(function (m) { return typeof p[m] === 'function'; }) : [],
         cameraState: cam,
         currentScene: getCurrentScene(),
         scenesCount: Object.keys(GRAPH).length,
-        categoriesCount: CATEGORIES.length
+        destinationsCount: TO_CATEGORIES.reduce(function (n, c) { return n + c.items.length; }, 0)
       };
       console.log('[SmartNav] diag:', JSON.stringify(d, null, 2));
       return d;
     }
   };
 
-  log('loaded v34 —', Object.keys(GRAPH).length, 'صحنه،', CATEGORIES.length, 'دسته');
+  log('loaded v35 —', Object.keys(GRAPH).length, 'صحنه |',
+      TO_CATEGORIES.reduce(function (n, c) { return n + c.items.length; }, 0), 'مقصد');
 })();
