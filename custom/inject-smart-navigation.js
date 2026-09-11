@@ -1,6 +1,13 @@
 /* ============================================================
-   inject-smart-navigation.js  (v31)
+   inject-smart-navigation.js  (v32)
    مسیریابی هوشمند برای تور مجازی بیمارستان (3DVista)
+   
+   تغییرات v32:
+   - دسته‌بندی صحنه‌ها با optgroup (۱۰ دسته)
+   - جستجوی زنده با فیلتر لحظه‌ای
+   - فوکوس خودکار روی سرچ موقع باز شدن پنل
+   - حفظ انتخاب قبلی بعد از جستجو
+   - ریست جستجو با Escape
    ============================================================ */
 (function () {
   'use strict';
@@ -32,7 +39,7 @@
   function log() { if (CFG.DEBUG && window.console) console.log.apply(console, ['[SmartNav]'].concat([].slice.call(arguments))); }
   function warn() { if (window.console) console.warn.apply(console, ['[SmartNav]'].concat([].slice.call(arguments))); }
 
-   /* ============================================================
+  /* ============================================================
      1) گراف صحنه‌ها
      ============================================================ */
   var GRAPH = {
@@ -206,7 +213,7 @@
     "معاینه زنان": [{ to: "پذیرش امید", yaw: -5.16 }]
   };
 
-  /* دوطرفه‌کردن گراف + گزارش یال‌های بدون yaw */
+  /* دوطرفه‌سازی گراف */
   (function normalizeGraph() {
     var missing = [];
     Object.keys(GRAPH).forEach(function (from) {
@@ -219,10 +226,10 @@
     });
     Object.keys(GRAPH).forEach(function (from) {
       GRAPH[from].forEach(function (edge) {
-        if (typeof edge.yaw !== 'number') missing.push(from + ' \u2192 ' + edge.to + (edge._auto ? ' (\u062e\u0648\u062f\u06a9\u0627\u0631)' : ''));
+        if (typeof edge.yaw !== 'number') missing.push(from + ' → ' + edge.to + (edge._auto ? ' (خودکار)' : ''));
       });
     });
-    if (missing.length) warn('yaw \u0646\u062f\u0627\u0631\u0646\u062f:\n  ' + missing.join('\n  '));
+    if (missing.length) warn('یال‌های بدون yaw:\n  ' + missing.join('\n  '));
   })();
 
   /* ============================================================
@@ -393,7 +400,7 @@
 
     var startTs = null;
     cameraStrategy = 'player.setPosition';
-    log('rotate', st.yaw.toFixed(1) + '\u00b0 \u2192 ' + targetYaw.toFixed(1) + '\u00b0', '(' + Math.round(duration) + 'ms)');
+    log('rotate', st.yaw.toFixed(1) + '° → ' + targetYaw.toFixed(1) + '°', '(' + Math.round(duration) + 'ms)');
 
     function frame(ts) {
       if (!token.alive) { callback(true); return; }
@@ -452,6 +459,11 @@
     + '#snav-panel.open{transform:translateX(-50%) translateY(0);visibility:visible;}'
     + '#snav-panel h3{margin:0 0 12px;font-size:13px;font-weight:700;color:#e8f4f2;letter-spacing:.2px;display:flex;align-items:center;gap:6px;}'
     + '#snav-panel h3 .dot{width:5px;height:5px;border-radius:50%;background:#d4af37;box-shadow:0 0 8px #d4af37;flex-shrink:0;}'
+    + '#snav-search{width:100%;box-sizing:border-box;padding:9px 12px;border-radius:10px;'
+    + 'border:1px solid rgba(45,212,191,.2);background-color:#0d2226;color:#eaf6f4;'
+    + 'font-family:"Vazirmatn",sans-serif;font-size:12.5px;outline:none;transition:border-color .2s;direction:rtl;}'
+    + '#snav-search::placeholder{color:#5e8883;}'
+    + '#snav-search:focus{border-color:#2dd4bf;background-color:#0f2a2e;}'
     + '.snav-field{margin-bottom:10px;}'
     + '.snav-field .lbl{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}'
     + '.snav-field label{font-size:10.5px;color:#8fb5b0;font-weight:500;}'
@@ -464,6 +476,8 @@
     + 'background-repeat:no-repeat;background-position:12px center;padding-left:28px;transition:border-color .2s;}'
     + '.snav-field select:focus{border-color:#2dd4bf;}'
     + '.snav-field select option{background-color:#0d2226;color:#eaf6f4;}'
+    + '.snav-field select optgroup{background-color:#0a1b1f;color:#7fa8a2;font-weight:600;font-style:normal;font-size:11px;}'
+    + '.snav-field select optgroup option{background-color:#0d2226;color:#eaf6f4;font-weight:400;font-size:12.5px;padding-right:8px;}'
     + '#snav-go{width:100%;margin-top:4px;padding:11px;border:none;border-radius:10px;cursor:pointer;'
     + 'background:linear-gradient(120deg,#2dd4bf,#1a8f82);color:#06201d;font-family:"Vazirmatn",sans-serif;'
     + 'font-weight:700;font-size:13px;transition:filter .2s,transform .15s;-webkit-tap-highlight-color:transparent;}'
@@ -486,6 +500,7 @@
     + '#snav-btn .ico{width:12px;height:12px;}'
     + '#snav-panel{padding:14px 12px 12px;border-radius:16px;width:calc(100vw - 20px);max-width:calc(100vw - 20px);}'
     + '#snav-panel h3{font-size:12.5px;margin-bottom:10px;}'
+    + '#snav-search{font-size:13px;padding:9px 11px;}'
     + '.snav-field select{font-size:13px;padding:9px 11px;padding-left:26px;}'
     + '#snav-go{font-size:13px;padding:11px;}'
     + '#snav-status{font-size:10.5px;padding:8px 10px;}'
@@ -505,38 +520,92 @@
   document.head.appendChild(styleEl);
 
   /* ============================================================
-     7) ساخت UI
+     7) دسته‌بندی صحنه‌ها
      ============================================================ */
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; });
   }
+
+  var CATEGORIES = [
+    { label: '🏠 ورودی و پذیرش',           scenes: ['ورودی اصلی', 'ورودی اورژانس', 'ورودی درمانگاه', 'پذیرش1', 'پذیرش2', 'تریاژ', 'بستری اورژانس', 'راهنمای خطوط'] },
+    { label: '🏥 کلینیک',                   scenes: ['درمانگاه', 'آزمایشگاه', 'دپارتمان آموزشی پژوهشی', 'سالن مطالعه', 'ورودی رادیولوژی'] },
+    { label: '📷 رادیولوژی و تصویربرداری', scenes: ['رادیولوژی', 'سونوگرافی', 'ماموگرافی', 'رادیوگرافی ساده', 'MRI'] },
+    { label: '🛏️ طبقه اول',                scenes: ['طبقه اول', 'پذیرش امید', 'معاینه زنان', 'آزمایشگاه (کلینیک امید)', 'مراقبت های ویژه قلبی', 'بخش مراقبت های ویژه'] },
+    { label: '🛏️ طبقه دوم',                scenes: ['بخش داخلی', 'بخش نورولوژی'] },
+    { label: '🛏️ طبقه سوم',                scenes: ['ورودی بخش ها', 'سایکوسوماتیک', 'فیزیوتراپی'] },
+    { label: '🛏️ طبقه چهارم',              scenes: ['ورودی جراحی', 'بخش جراحی', 'اتاق vip', 'ورودی اطفال', 'بخش اطفال', 'ایستگاه پرستاری اطفال', 'مراقبت های ویژه کودکان', 'اتاق بازی', 'رگ گیری اطفال'] },
+    { label: '🔪 اتاق عمل',                 scenes: ['راهرو اتاق عمل', 'اتاق عمل (1)', 'اتاق عمل (2)', 'اتاق عمل (3)', 'اتاق عمل (4)', 'ریکاوری'] },
+    { label: '🛗 آسانسور',                  scenes: ['آسانسور همکف', 'آسانسور طبقه اول', 'آسانسور طبقه دوم', 'آسانسور طبقه سوم', 'آسانسور طبقه چهارم'] },
+    { label: '🕌 سایر',                     scenes: ['نمازخانه'] }
+  ];
+
+  function buildOptionsHtml(filterText) {
+    var q = (filterText || '').trim().toLowerCase();
+    var html = '';
+    var usedScenes = {};
+
+    CATEGORIES.forEach(function (cat) {
+      var items = cat.scenes.filter(function (s) {
+        return (s in GRAPH) && (!q || s.toLowerCase().indexOf(q) !== -1);
+      });
+      if (!items.length) return;
+      items.forEach(function (s) { usedScenes[s] = true; });
+      items.sort(function (a, b) { return a.localeCompare(b, 'fa'); });
+      html += '<optgroup label="' + escapeHtml(cat.label) + '">';
+      items.forEach(function (s) {
+        html += '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</option>';
+      });
+      html += '</optgroup>';
+    });
+
+    var others = Object.keys(GRAPH).filter(function (s) {
+      return !usedScenes[s] && (!q || s.toLowerCase().indexOf(q) !== -1);
+    }).sort(function (a, b) { return a.localeCompare(b, 'fa'); });
+
+    if (others.length) {
+      html += '<optgroup label="📌 سایر صحنه‌ها">';
+      others.forEach(function (s) {
+        html += '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</option>';
+      });
+      html += '</optgroup>';
+    }
+    return html;
+  }
+
+  /* ============================================================
+     8) ساخت UI
+     ============================================================ */
   var labels = Object.keys(GRAPH).sort(function (a, b) { return a.localeCompare(b, 'fa'); });
-  var optionsHtml = labels.map(function (l) { return '<option value="' + escapeHtml(l) + '">' + escapeHtml(l) + '</option>'; }).join('');
+  var optionsHtml = buildOptionsHtml('');
 
   var btn = document.createElement('button');
   btn.id = 'snav-btn';
   btn.type = 'button';
   btn.setAttribute('aria-haspopup', 'dialog');
   btn.setAttribute('aria-expanded', 'false');
-  btn.title = '\u0645\u0633\u06cc\u0631\u06cc\u0627\u0628\u06cc \u0647\u0648\u0634\u0645\u0646\u062f';
-  btn.innerHTML = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#d4af37" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg><span>\u0645\u0633\u06cc\u0631\u06cc\u0627\u0628\u06cc \u0647\u0648\u0634\u0645\u0646\u062f</span>';
+  btn.title = 'مسیریابی هوشمند';
+  btn.innerHTML = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#d4af37" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg><span>مسیریابی هوشمند</span>';
   document.body.appendChild(btn);
 
   var panel = document.createElement('div');
   panel.id = 'snav-panel';
   panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-label', '\u0645\u0633\u06cc\u0631\u06cc\u0627\u0628\u06cc \u0647\u0648\u0634\u0645\u0646\u062f \u062a\u0648\u0631');
+  panel.setAttribute('aria-label', 'مسیریابی هوشمند تور');
   panel.innerHTML =
-    '<button id="snav-close" type="button" aria-label="\u0628\u0633\u062a\u0646">&times;</button>' +
-    '<h3><span class="dot"></span>\u0645\u0633\u06cc\u0631\u06cc\u0627\u0628\u06cc \u0647\u0648\u0634\u0645\u0646\u062f \u062a\u0648\u0631</h3>' +
-    '<div class="snav-field"><div class="lbl"><label for="snav-from">\u0645\u0628\u062f\u0623</label>' +
-      '<button type="button" class="snav-link" id="snav-here">\u0645\u0648\u0642\u0639\u06cc\u062a \u0641\u0639\u0644\u06cc \u0645\u0646</button></div>' +
+    '<button id="snav-close" type="button" aria-label="بستن">&times;</button>' +
+    '<h3><span class="dot"></span>مسیریابی هوشمند تور</h3>' +
+    '<div class="snav-field">' +
+      '<input type="text" id="snav-search" placeholder="🔍 جستجوی صحنه..." autocomplete="off" />' +
+    '</div>' +
+    '<div class="snav-field"><div class="lbl"><label for="snav-from">مبدأ</label>' +
+      '<button type="button" class="snav-link" id="snav-here">موقعیت فعلی من</button></div>' +
       '<select id="snav-from">' + optionsHtml + '</select></div>' +
-    '<div class="snav-field"><div class="lbl"><label for="snav-to">\u0645\u0642\u0635\u062f</label></div><select id="snav-to">' + optionsHtml + '</select></div>' +
-    '<button id="snav-go" type="button">\u0634\u0631\u0648\u0639 \u0645\u0633\u06cc\u0631\u06cc\u0627\u0628\u06cc</button>' +
+    '<div class="snav-field"><div class="lbl"><label for="snav-to">مقصد</label></div>' +
+      '<select id="snav-to">' + optionsHtml + '</select></div>' +
+    '<button id="snav-go" type="button">شروع مسیریابی</button>' +
     '<div id="snav-err" role="alert"></div>' +
     '<div id="snav-status" aria-live="polite"><div class="txt"><div id="snav-status-txt"></div><div id="snav-progress"><i></i></div></div>' +
-      '<button id="snav-cancel" type="button">\u062a\u0648\u0642\u0641</button></div>';
+      '<button id="snav-cancel" type="button">توقف</button></div>';
   document.body.appendChild(panel);
 
   var fromSel = panel.querySelector('#snav-from');
@@ -548,16 +617,54 @@
   var progressBar = panel.querySelector('#snav-progress i');
   var errBox = panel.querySelector('#snav-err');
   var cancelBtn = panel.querySelector('#snav-cancel');
+  var searchInput = panel.querySelector('#snav-search');
+
+  /* ============================================================
+     9) جستجوی زنده
+     ============================================================ */
+  function applySearch() {
+    var q = searchInput.value;
+    var fromVal = fromSel.value;
+    var toVal = toSel.value;
+
+    var newHtml = buildOptionsHtml(q);
+
+    fromSel.innerHTML = newHtml;
+    toSel.innerHTML = newHtml;
+
+    if (fromVal) {
+      var opt = fromSel.querySelector('option[value="' + fromVal.replace(/"/g, '\\"') + '"]');
+      if (opt) fromSel.value = fromVal;
+    }
+    if (toVal) {
+      var opt2 = toSel.querySelector('option[value="' + toVal.replace(/"/g, '\\"') + '"]');
+      if (opt2) toSel.value = toVal;
+    }
+  }
+
+  searchInput.addEventListener('input', applySearch);
+  searchInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      searchInput.value = '';
+      applySearch();
+    }
+  });
 
   function setPanelOpen(open) {
     panel.classList.toggle('open', open);
     btn.setAttribute('aria-expanded', String(open));
-    if (open && CFG.AUTO_SELECT_CURRENT_SCENE) selectCurrentScene(true);
+    if (open) {
+      if (CFG.AUTO_SELECT_CURRENT_SCENE) selectCurrentScene(true);
+      setTimeout(function () { try { searchInput.focus(); } catch (e) {} }, 450);
+    } else {
+      if (searchInput) { searchInput.value = ''; applySearch(); }
+    }
   }
+
   function selectCurrentScene(silent) {
     var cur = getCurrentSceneLabel();
     if (cur && cur in GRAPH) { fromSel.value = cur; if (!silent) errBox.style.display = 'none'; return true; }
-    if (!silent) showError(cur ? ('\u0635\u062d\u0646\u0647\u0654 \u0641\u0639\u0644\u06cc \u00ab' + cur + '\u00bb \u062f\u0631 \u06af\u0631\u0627\u0641 \u0646\u06cc\u0633\u062a.') : '\u062a\u0634\u062e\u06cc\u0635 \u0635\u062d\u0646\u0647 \u0645\u0645\u06a9\u0646 \u0646\u0628\u0648\u062f.');
+    if (!silent) showError(cur ? ('صحنهٔ فعلی («' + cur + '») در گراف نیست.') : 'تشخیص صحنه ممکن نبود.');
     return false;
   }
 
@@ -583,7 +690,7 @@
   }
 
   /* ============================================================
-     8) اجرای مسیر
+     10) اجرای مسیر
      ============================================================ */
   var activeToken = null;
 
@@ -603,7 +710,7 @@
     goBtn.disabled = true;
     errBox.style.display = 'none';
     statusBox.classList.add('show');
-    setStatus('\u062f\u0631 \u062d\u0627\u0644 \u0622\u0645\u0627\u062f\u0647\u200c\u0633\u0627\u0632\u06cc \u0645\u0633\u06cc\u0631\u2026', 0);
+    setStatus('در حال آماده‌سازی مسیر…', 0);
 
     function finish(msg) {
       if (msg) setStatus(msg, 1);
@@ -615,13 +722,13 @@
 
     function stepAt(idx) {
       if (!token.alive) return;
-      if (idx >= total) { finish('\u0631\u0633\u06cc\u062f\u06cc\u062f \u0628\u0647 \u0645\u0642\u0635\u062f: <b>' + escapeHtml(toLabel) + '</b> \u2713'); return; }
+      if (idx >= total) { finish('رسیدید به مقصد: <b>' + escapeHtml(toLabel) + '</b> ✓'); return; }
       var s = steps[idx];
       var frac = idx / total;
 
       schedule(token, function () {
         if (typeof s.yaw !== 'number') { jump(); return; }
-        setStatus('\u06af\u0627\u0645 <b>' + (idx + 1) + '</b> \u0627\u0632 <b>' + total + '</b> \u2014 \u0686\u0631\u062e\u0634 \u0628\u0647 \u0633\u0645\u062a \u00ab' + escapeHtml(s.to) + '\u00bb', frac + 0.3 / total);
+        setStatus('گام <b>' + (idx + 1) + '</b> از <b>' + total + '</b> — چرخش به سمت «' + escapeHtml(s.to) + '»', frac + 0.3 / total);
         smoothRotate(s.yaw, s.pitch, token, function (ok) {
           if (!token.alive) return;
           if (ok) { schedule(token, jump, CFG.HOLD_BEFORE_JUMP_MS); return; }
@@ -632,7 +739,7 @@
 
       function jump() {
         if (!token.alive) return;
-        setStatus('\u06af\u0627\u0645 <b>' + (idx + 1) + '</b> \u0627\u0632 <b>' + total + '</b> \u2014 \u062d\u0631\u06a9\u062a \u0628\u0647 \u00ab' + escapeHtml(s.to) + '\u00bb', frac + 0.8 / total);
+        setStatus('گام <b>' + (idx + 1) + '</b> از <b>' + total + '</b> — حرکت به «' + escapeHtml(s.to) + '»', frac + 0.8 / total);
         goToScene(s.to);
         waitForScene(s.to, token, function () { stepAt(idx + 1); });
       }
@@ -647,7 +754,7 @@
     if (!activeToken) return;
     var t = activeToken;
     killToken(t); activeToken = null;
-    setStatus('\u0645\u0633\u06cc\u0631\u06cc\u0627\u0628\u06cc \u0645\u062a\u0648\u0642\u0641 \u0634\u062f.');
+    setStatus('مسیریابی متوقف شد.');
     goBtn.disabled = false;
     setTimeout(function () { if (activeToken === null) statusBox.classList.remove('show'); }, 1200);
   });
@@ -655,25 +762,26 @@
   goBtn.addEventListener('click', function () {
     var fromLabel = fromSel.value, toLabel = toSel.value;
     errBox.style.display = 'none';
-    if (!fromLabel || !toLabel) { showError('\u0644\u0637\u0641\u0627\u064b \u0645\u0628\u062f\u0623 \u0648 \u0645\u0642\u0635\u062f \u0631\u0627 \u0627\u0646\u062a\u062e\u0627\u0628 \u06a9\u0646\u06cc\u062f.'); return; }
-    if (fromLabel === toLabel) { showError('\u0645\u0628\u062f\u0623 \u0648 \u0645\u0642\u0635\u062f \u0646\u0645\u06cc\u200c\u062a\u0648\u0627\u0646\u0646\u062f \u06cc\u06a9\u0633\u0627\u0646 \u0628\u0627\u0634\u0646\u062f.'); return; }
+    if (!fromLabel || !toLabel) { showError('لطفاً مبدأ و مقصد را انتخاب کنید.'); return; }
+    if (fromLabel === toLabel) { showError('مبدأ و مقصد نمی‌توانند یکسان باشند.'); return; }
     var result = dijkstra(fromLabel, toLabel);
     log('path:', result);
-    if (!result) { showError('\u0645\u0633\u06cc\u0631\u06cc \u067e\u06cc\u062f\u0627 \u0646\u0634\u062f.'); return; }
+    if (!result) { showError('مسیری پیدا نشد.'); return; }
     runPath(result, toLabel);
   });
 
   /* ============================================================
-     9) API عمومی
+     11) API عمومی
      ============================================================ */
   window.SmartNav = {
     __loaded: true,
     config: CFG,
     graph: GRAPH,
+    categories: CATEGORIES,
     dijkstra: dijkstra,
     navigate: function (from, to) {
       var r = dijkstra(from, to);
-      if (!r) { warn('no path', from, '\u2192', to); return false; }
+      if (!r) { warn('no path', from, '→', to); return false; }
       fromSel.value = from; toSel.value = to; setPanelOpen(true); runPath(r, to); return true;
     },
     stop: function () { cancelBtn.click(); },
@@ -688,7 +796,7 @@
       var root = getRootPlayer(), ctx = getCamCtx(), cam = {};
       if (ctx.player) { try { cam = readCam(ctx.player); } catch (e) { cam = { error: String(e) }; } }
       var d = {
-        version: 'v31',
+        version: 'v32',
         tourFound: !!window.tour,
         rootPlayer: !!root,
         panoramaPlayer: !!ctx.player,
@@ -696,11 +804,12 @@
         cameraState: cam,
         currentScene: getCurrentSceneLabel(),
         strategy: cameraStrategy === undefined ? '(not tested yet)' : cameraStrategy,
-        scenesCount: Object.keys(GRAPH).length
+        scenesCount: Object.keys(GRAPH).length,
+        categoriesCount: CATEGORIES.length
       };
       console.log('[SmartNav] diag:', JSON.stringify(d, null, 2));
       return d;
     }
   };
-  log('loaded v31. scenes:', labels.length, '| current scene:', getCurrentSceneLabel());
+  log('loaded v32. scenes:', labels.length, '| categories:', CATEGORIES.length, '| current scene:', getCurrentSceneLabel());
 })();
